@@ -1,0 +1,17 @@
+{
+  "name": "isdecimal",
+  "version": "0.1.0",
+  "description": "Biblioteca para verificar se um valor numérico é inteiro ou decimal.",
+  "main": "src/index.js",
+  "exports": {
+    "import": "./src/index.js",
+    "default": "./src/index.js"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": ["integer", "decimal", "validation"],
+  "author": "Sua Comunidade",
+  "license": "MIT",
+  "type": "module"
+}
