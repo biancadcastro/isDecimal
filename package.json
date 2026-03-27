@@ -1,7 +1,7 @@
 {
-  "name": "isdecimal",
+  "name": "isdecimalorint",
   "version": "0.1.0",
-  "description": "Biblioteca para verificar se um valor numérico é inteiro ou decimal.",
+  "description": "Biblioteca para verificar se um valor numérico é inteiro ou decimal, suportando strings e notação científica.",
   "main": "src/index.js",
   "exports": {
     "import": "./src/index.js",
@@ -10,8 +10,16 @@
   "scripts": {
     "test": "node --test"
   },
-  "keywords": ["integer", "decimal", "validation"],
+  "keywords": ["integer", "decimal", "validation", "number", "scientific-notation"],
   "author": "Bianca de Castro",
   "license": "MIT",
-  "type": "module"
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/biancadcastro/isDecimal.git"
+  },
+  "bugs": {
+    "url": "https://github.com/biancadcastro/isDecimal/issues"
+  },
+  "homepage": "https://github.com/biancadcastro/isDecimal#readme"
 }
