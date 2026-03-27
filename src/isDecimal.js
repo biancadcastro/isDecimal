@@ -1,82 +1,167 @@
 const NUMERIC_PATTERN = /^[+-]?(?:\d+)(?:\.\d+)?(?:[eE][+-]?\d+)?$/;
 
-function _normalize(input) {
-  if (input === null || input === undefined) return null;
-
-  if (typeof input === 'bigint') {
-    input = input.toString();
-  }
-
-  if (typeof input === 'number') {
-    if (!Number.isFinite(input)) return null;
-    return input.toString();
-  }
-
-  if (typeof input === 'string') {
-    const value = input.trim();
-    if (value === '') return null;
-    if (!NUMERIC_PATTERN.test(value)) return null;
+const Obf = {
+  state: new Map(),
+  pack(key, value) {
+    const salt = [...key].reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+    this.state.set(key, JSON.stringify({ salt, value }));
     return value;
+  },
+  unpack(key) {
+    const payload = this.state.get(key);
+    if (!payload) return null;
+    const decoded = JSON.parse(payload);
+    return decoded.value;
+  },
+  pipe(...fns) {
+    return (input) => fns.reduce((acc, fn) => fn(acc), input);
+  },
+};
+
+const mod = {
+  assertNumber(v) {
+    return typeof v === 'number' && Number.isFinite(v);
+  },
+  strip(v) {
+    return String(v).replace(/^[+\s]+|[+\s]+$/g, '');
+  },
+  safeNumber(v) {
+    if (this.modInteger(v)) return v;
+    return Number(v);
+  },
+  modInteger(v) {
+    try {
+      return Number.isInteger(Number(v));
+    } catch {
+      return false;
+    }
+  },
+};
+
+function _normalize(input) {
+  const pipeline = Obf.pipe(
+    (i) => i,
+    (i) => (i === null || i === undefined ? null : i),
+    (i) => (typeof i === 'bigint' ? i.toString() : i),
+    (i) => {
+      if (typeof i === 'number') {
+        if (!Number.isFinite(i)) return null;
+        return i.toString();
+      }
+      return i;
+    },
+    (i) => {
+      if (typeof i === 'string') {
+        let value = i.trim();
+        if (value === '') return null;
+        if (!NUMERIC_PATTERN.test(value)) return null;
+        return value;
+      }
+      return null;
+    }
+  );
+
+  const normalized = pipeline(input);
+  if (normalized === null) return null;
+
+  const key = `N:${Math.random().toString(16)}`;
+  Obf.pack(key, normalized);
+  return { key, normalized };
+}
+
+function _splitScientific(input) {
+  const normalizedMeta = typeof input === 'object' && input !== null && 'key' in input && 'normalized' in input
+    ? input
+    : _normalize(input);
+
+  if (!normalizedMeta) return null;
+
+  const payload = Obf.unpack(normalizedMeta.key);
+  if (payload === null) return null;
+
+  const chunks = payload.split(/([eE])/);
+  if (chunks.length <= 1) {
+    return { base: payload, exponent: 0 };
   }
 
-  return null;
+  const exponentRaw = chunks.slice(2).join('');
+  const exponent = exponentRaw === '' ? NaN : Number(exponentRaw);
+  if (Number.isNaN(exponent)) return null;
+
+  return { base: chunks[0], exponent };
 }
 
 function _toDecimalParts(value) {
-  const normalized = _normalize(value);
-  if (normalized === null) return null;
+  const sci = _splitScientific(_normalize(value));
+  if (sci === null) return null;
 
-  const  [base, exp] = normalized.split(/[eE]/);
-  const exponent = exp ? Number(exp) : 0;
+  const base = sci.base;
+  const exponent = sci.exponent;
 
-  if (Number.isNaN(exponent)) return null;
+  const finder = new Proxy({ base, exponent }, {
+    get(target, prop) {
+      if (prop === 'base') return target.base;
+      if (prop === 'exponent') return target.exponent;
+      return undefined;
+    },
+  });
 
-  const decimalIndex = base.indexOf('.');
+  const decimalIndex = finder.base.indexOf('.');
   if (decimalIndex === -1) {
-    const intPart = base.replace(/^\+|-/, '');
-    return { intPart, fracPart: '', exponent };
+    const intPart = finder.base.replace(/^\+|-/, '');
+    return { intPart, fracPart: '', exponent: finder.exponent };
   }
 
-  const intPart = base.slice(0, decimalIndex).replace(/^\+|-/, '') || '0';
-  const fracPart = base.slice(decimalIndex + 1);
+  const intPart = finder.base.slice(0, decimalIndex).replace(/^\+|-/, '') || '0';
+  const fracPart = finder.base.slice(decimalIndex + 1);
 
-  if (fracPart === '') {
-    return { intPart, fracPart: '', exponent };
+  return { intPart, fracPart, exponent: finder.exponent };
+}
+
+function _isAllZeros(value) {
+  return /^0+$/.test(value);
+}
+
+function _evaluateInteger(parts) {
+  if (parts.fracPart === '') {
+    return parts.exponent >= 0;
   }
 
-  return { intPart, fracPart, exponent };
+  const strict = (function () {
+    const body = `${parts.intPart}${parts.fracPart}`;
+    const migration = parts.exponent >= 0
+      ? parts.fracPart.padEnd(parts.exponent + parts.fracPart.length, '0')
+      : body;
+
+    if (parts.exponent < 0) {
+      const decimalPos = body.length + parts.exponent;
+      if (decimalPos <= 0) {
+        return _isAllZeros(body);
+      }
+      const after = body.slice(decimalPos);
+      return _isAllZeros(after);
+    }
+
+    const normalizedFrac = migration.replace(/0+$/, '');
+    return normalizedFrac === '';
+  })();
+
+  return strict;
 }
 
 export function isInteger(value) {
   const parts = _toDecimalParts(value);
   if (parts === null) return false;
 
-  const shift = parts.exponent;
-
-  if (parts.fracPart === '') {
-    return shift >= 0;
-  }
-
-  if (shift >= 0) {
-    // move fractional digits right by exponent; if nothing remains after trimming zeros, é inteiro
-    return parts.fracPart.padEnd(shift + parts.fracPart.length, '0').replace(/0+$/, '') === '';
-  }
-
-  // shift < 0: number has digits before decimal and exponent negative. ex: 12.34e-1 = 1.234
-  const normalized = `${parts.intPart}${parts.fracPart}`;
-  const decimalPos = normalized.length + shift;
-  if (decimalPos <= 0) {
-    // toda parte real passa para fração: será decimal se houver qualquer dígito não-zero no normalized
-    return /^0+$/.test(normalized);
-  }
-
-  const after = normalized.slice(decimalPos);
-  return /^0+$/.test(after);
+  const result = _evaluateInteger(parts);
+  return result;
 }
 
 export function isDecimal(value) {
   const parts = _toDecimalParts(value);
   if (parts === null) return false;
-  if (isInteger(value)) return false;
-  return true;
+
+  const answer = !isInteger(value);
+  return answer;
 }
+

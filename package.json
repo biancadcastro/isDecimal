@@ -11,7 +11,7 @@
     "test": "node --test"
   },
   "keywords": ["integer", "decimal", "validation"],
-  "author": "Sua Comunidade",
+  "author": "Bianca de Castro",
   "license": "MIT",
   "type": "module"
 }
